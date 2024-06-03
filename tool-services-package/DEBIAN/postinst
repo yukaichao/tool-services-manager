@@ -1,0 +1,24 @@
+#!/bin/bash
+# postinst script for check-services-package
+
+# Make sure the scripts are executable
+chmod 755 /bin/tool-services
+chmod 755 /bin/tool-services_completion.sh
+
+# Add the source command to each user's .bashrc file
+for dir in /home/*; do
+    if [ -d "$dir" ]; then
+        bashrc_file="$dir/.bashrc"
+        if ! grep -q "source /bin/tool-services_completion.sh" "$bashrc_file"; then
+            echo "source /bin/tool-services_completion.sh" >> "$bashrc_file"
+        fi
+    fi
+done
+
+# Apply to the root user as well
+if ! grep -q "source /bin/tool-services_completion.sh" /root/.bashrc; then
+    echo "source /bin/tool-services_completion.sh" >> /root/.bashrc
+fi
+
+exit 0
+

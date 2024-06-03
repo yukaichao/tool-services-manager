@@ -1,0 +1,300 @@
+#!/bin/bash
+
+# 定义颜色
+# 使用 ANSI 转义代码来设置终端输出的颜色
+COLOR_RESET="\033[0m"
+COLOR_LIGHT_GREEN="\033[92m"  # 浅绿色
+COLOR_RED="\033[31m"
+COLOR_WHITE="\033[37m"
+
+
+# 获取系统语言
+LANGUAGE=$(echo $LANG | cut -d'_' -f1)
+LANG_FILE="/etc/tool-services-package/tool-services_${LANGUAGE}.properties"
+EN_LANG_FILE="/etc/tool-services-package/tool-services_en.properties"
+
+# 默认语言文件内容（在语言文件缺失时使用）
+declare -A DEFAULT_MESSAGES
+case $LANGUAGE in
+    zh)
+        DEFAULT_MESSAGES=(
+            ["MSG_LANGUAGE_FILE_NOT_FOUND"]="错误：未找到语言文件！"
+        )
+        ;;
+    *)
+        DEFAULT_MESSAGES=(
+            ["MSG_LANGUAGE_FILE_NOT_FOUND"]="Error: Language file not found!"
+        )
+        ;;
+esac
+
+# 从属性文件中读取语言消息
+declare -A MESSAGES
+if [[ -f "$LANG_FILE" ]]; then
+    while IFS='=' read -r key value; do
+        MESSAGES["$key"]="$value"
+    done < "$LANG_FILE"
+elif [[ -f "$EN_LANG_FILE" ]]; then
+    while IFS='=' read -r key value; do
+        MESSAGES["$key"]="$value"
+    done < "$EN_LANG_FILE"
+else
+    for key in "${!DEFAULT_MESSAGES[@]}"; do
+        MESSAGES["$key"]="${DEFAULT_MESSAGES[$key]}"
+    done
+    echo "${MESSAGES[MSG_LANGUAGE_FILE_NOT_FOUND]}"
+    exit 1
+fi
+
+# 读取服务列表文件路径
+SERVICE_FILE="$HOME/.tool-services"
+
+# 检查服务列表文件是否存在，如果不存在则创建一个默认的空文件
+if [ ! -f "$SERVICE_FILE" ]; then
+    echo "${MESSAGES[MSG_SERVICE_FILE_NOT_FOUND_AND_CREATED]}: $SERVICE_FILE"
+    touch "$SERVICE_FILE"
+fi
+
+SERVICES=($(cat $SERVICE_FILE))
+
+# 打印参数表
+print_help() {
+    echo -e "$COLOR_WHITE${MESSAGES[MSG_VALID_OPTIONS]}:$COLOR_RESET"
+    echo -e "$COLOR_WHITE  ${MESSAGES[HELP_AUTO_Y]}$COLOR_RESET"
+    echo -e "$COLOR_WHITE  ${MESSAGES[HELP_AUTO_N]}$COLOR_RESET"
+    echo -e "$COLOR_WHITE  ${MESSAGES[HELP_STOP]}$COLOR_RESET"
+    echo -e "$COLOR_WHITE  ${MESSAGES[HELP_RESTART]}$COLOR_RESET"
+    echo -e "$COLOR_WHITE  ${MESSAGES[HELP_START]}$COLOR_RESET"
+    echo -e "$COLOR_WHITE  ${MESSAGES[HELP_HELP]}$COLOR_RESET"
+    exit 0
+}
+
+# 处理输入参数
+# 检查脚本参数以决定是否自动重启服务
+AUTO_RESTART=""
+ACTION=""
+SERVICE=""
+ERROR=false
+
+# 使用 while 循环解析参数
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        -y)
+            if [ -n "$AUTO_RESTART" ]; then
+                ERROR=true
+                break
+            fi
+            AUTO_RESTART="yes"
+            shift
+            ;;
+        -n)
+            if [ -n "$AUTO_RESTART" ]; then
+                ERROR=true
+                break
+            fi
+            AUTO_RESTART="no"
+            shift
+            ;;
+        --stop|--restart|--start)
+            if [ -n "$ACTION" ]; then
+                ERROR=true
+                break
+            fi
+            ACTION="${1:2}"
+            shift
+            if [[ $# -gt 0 && ! "$1" =~ ^- ]]; then
+                SERVICE="$1"
+                shift
+            fi
+            ;;
+        -h | -?)
+            print_help
+            ;;
+        *)
+            ERROR=true
+            break
+            ;;
+    esac
+done
+
+# 如果检测到错误，打印帮助信息
+if [ "$ERROR" = true ]; then
+    echo -e "$COLOR_RED${MESSAGES[MSG_INVALID_OPTIONS]}$COLOR_RESET"
+    print_help
+fi
+
+# 初始化计数器
+# 用于统计服务的总数、运行正常的服务数以及出错的服务数
+total_services=${#SERVICES[@]}
+running_services=0
+failed_services=0
+failed_services_list=()
+
+# 检查服务状态的函数
+check_service_status() {
+    local services_to_check=("${SERVICES[@]}")
+
+    for SERVICE in "${services_to_check[@]}"; do
+        # 使用 systemctl 检查服务状态
+        STATUS=$(systemctl is-active $SERVICE)
+
+        if [ "$STATUS" = "active" ]; then
+            # 服务正常运行
+            echo -e "$COLOR_LIGHT_GREEN$SERVICE ${MESSAGES[MSG_RUNNING]}.$COLOR_RESET"
+            ((running_services++))
+        else
+            # 服务未运行
+            echo -e "$COLOR_RED${MESSAGES[MSG_ERROR]}: $SERVICE ($STATUS)$COLOR_RESET"
+            
+            if [ "$AUTO_RESTART" == "" ]; then
+                sleep 2
+                echo -e "$COLOR_WHITE${MESSAGES[MSG_LOGS]}:$COLOR_RESET"
+                # 显示服务最近的日志
+                journalctl -u $SERVICE -n 20
+                echo ""
+            fi
+            ((failed_services++))
+            failed_services_list+=("$SERVICE")
+
+            # 根据AUTO_RESTART变量决定是否重启服务
+            if [ "$AUTO_RESTART" == "yes" ]; then
+                REPLY="y"
+            elif [ "$AUTO_RESTART" == "no" ]; then
+                REPLY="n"
+            else
+                # 提示用户是否要重启服务
+                read -p "${MESSAGES[MSG_RESTART_PROMPT]}" REPLY
+            fi
+
+            if [[ "$REPLY" =~ ^[Yy]$ ]]; then
+                echo -e "$COLOR_WHITE${MESSAGES[MSG_RESTARTING]} $SERVICE...$COLOR_RESET"
+                if sudo systemctl restart $SERVICE; then
+                    # 服务重启成功
+                    echo -e "$COLOR_LIGHT_GREEN$SERVICE ${MESSAGES[MSG_RESTARTED]}.$COLOR_RESET"
+                    ((running_services++))
+                    ((failed_services--))
+                    # 从失败的服务列表中移除该服务
+                    failed_services_list=("${failed_services_list[@]/$SERVICE}")
+                else
+                    # 服务重启失败
+                    echo -e "$COLOR_RED${MESSAGES[MSG_RESTART_FAILED]}: $SERVICE$COLOR_RESET"
+                    echo -e "$COLOR_WHITE${MESSAGES[MSG_LOGS]}:$COLOR_RESET"
+                    journalctl -u $SERVICE -n 20
+                fi
+            fi
+        fi
+    done
+}
+
+# 停止服务的函数（从下到上）
+stop_services() {
+    local services_to_stop=("${SERVICES[@]}")
+    
+    if [ -n "$SERVICE" ]; then
+        services_to_stop=("$SERVICE")
+    fi
+
+    echo -e "$COLOR_WHITE${MESSAGES[MSG_STOPPING]}: $COLOR_RESET"
+    for (( idx=${#services_to_stop[@]}-1 ; idx>=0 ; idx-- )); do
+        local SERVICE=${services_to_stop[$idx]}
+        echo "  - $SERVICE"
+    done
+
+    for (( idx=${#services_to_stop[@]}-1 ; idx>=0 ; idx-- )); do
+        local SERVICE=${services_to_stop[$idx]}
+        if [ "$AUTO_RESTART" != "yes" ] && [ "$AUTO_RESTART" != "no" ]; then
+            echo -e "$COLOR_WHITE${MESSAGES[MSG_PREPARING_STOP]}:$SERVICE$COLOR_RESET"
+            read -p "$(echo -e "$COLOR_WHITE${MESSAGES[MSG_STOP_PROMPT]} $COLOR_RESET")" REPLY
+        else
+            if [ "$AUTO_RESTART" == "yes" ]; then
+                REPLY="y"
+            else
+                REPLY="n"
+            fi
+        fi
+
+        if [[ "$REPLY" =~ ^[Yy]$ ]]; then
+            echo -e "$COLOR_WHITE${MESSAGES[MSG_STOPPING]} $SERVICE...$COLOR_RESET"
+            if sudo systemctl stop $SERVICE; then
+                echo -e "$COLOR_LIGHT_GREEN$SERVICE ${MESSAGES[MSG_STOPPED]}.$COLOR_RESET"
+            else
+                echo -e "$COLOR_RED${MESSAGES[MSG_STOP_FAILED]}: $SERVICE$COLOR_RESET"
+            fi
+        fi
+    done
+}
+
+# 重启服务的函数（先停止再启动）
+restart_services() {
+    stop_services
+    start_services
+}
+
+# 启动服务的函数（从上到下）
+start_services() {
+    local services_to_start=("${SERVICES[@]}")
+    
+    if [ -n "$SERVICE" ]; then
+        services_to_start=("$SERVICE")
+    fi
+
+    echo -e "$COLOR_WHITE${MESSAGES[MSG_STARTING]}: $COLOR_RESET"
+    for SERVICE in "${services_to_start[@]}"; do
+        echo "  - $SERVICE"
+    done
+
+    for SERVICE in "${services_to_start[@]}"; do
+        if [ "$AUTO_RESTART" == "yes" ];then
+            REPLY="y"
+        elif [ "$AUTO_RESTART" == "no" ];then
+            REPLY="n"
+        else
+            echo -e "$COLOR_WHITE${MESSAGES[MSG_PREPARING_STOP]}:$SERVICE$COLOR_RESET"
+            read -p "${MESSAGES[MSG_START_PROMPT]}" REPLY
+        fi
+
+        if [[ "$REPLY" =~ ^[Yy]$ ]]; then
+            echo -e "$COLOR_WHITE${MESSAGES[MSG_STARTING]} $SERVICE...$COLOR_RESET"
+            if sudo systemctl start $SERVICE; then
+                echo -e "$COLOR_LIGHT_GREEN$SERVICE ${MESSAGES[MSG_STARTED]}.$COLOR_RESET"
+            else
+                echo -e "$COLOR_RED${MESSAGES[MSG_START_FAILED]}: $SERVICE$COLOR_RESET"
+            fi
+        fi
+    done
+}
+
+# 根据传入的参数执行相应的操作
+case $ACTION in
+    stop)
+        stop_services
+        ;;
+    restart)
+        restart_services
+        ;;
+    start)
+        start_services
+        ;;
+    *)
+        # 显示开头的总结信息
+        echo -e "$COLOR_WHITE${MESSAGES[MSG_HEADER]}$COLOR_RESET"
+        check_service_status
+        # 显示总结信息
+        echo ""
+        echo -e "$COLOR_WHITE---- ${MESSAGES[MSG_SUMMARY]} ----$COLOR_RESET"
+        echo -e "$COLOR_WHITE${MESSAGES[MSG_TOTAL_SERVICES]}: $total_services$COLOR_RESET"
+        echo -e "$COLOR_WHITE${MESSAGES[MSG_RUNNING_SERVICES]}: $running_services$COLOR_RESET"
+        echo -e "$COLOR_WHITE${MESSAGES[MSG_FAILED_SERVICES]}: $failed_services$COLOR_RESET"
+        ;;
+esac
+
+# 如果有出错的服务，列出这些服务
+if [ $failed_services -gt 0 ]; then
+    echo -e "$COLOR_WHITE${MESSAGES[MSG_FAILED_SERVICES_LIST]}:$COLOR_RESET"
+    for SERVICE in "${failed_services_list[@]}"; do
+        echo -e "$COLOR_RED  - $SERVICE$COLOR_RESET"
+    done
+fi
+
+# 退出脚本
+exit 0

@@ -1,0 +1,8 @@
+Package: tool-services-package
+Version: 1.0
+Section: utils
+Priority: optional
+Architecture: all
+Maintainer: Your Name <yukaichao@nimte.ac.cn>
+Description: A package to check and manage services.
+ This package contains a script to check, stop, start, and restart services.

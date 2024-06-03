@@ -1,0 +1,16 @@
+#!/bin/bash
+# prerm script for check-services-package
+
+# Remove the source command from each user's .bashrc file
+for dir in /home/*; do
+    if [ -d "$dir" ]; then
+        bashrc_file="$dir/.bashrc"
+        sed -i '/source \/bin\/tool-services_completion.sh/d' "$bashrc_file"
+    fi
+done
+
+# Apply to the root user as well
+sed -i '/source \/bin\/tool-services_completion.sh/d' /root/.bashrc
+
+exit 0
+
