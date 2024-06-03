@@ -2,6 +2,8 @@
 
 Tool Services Manager 是一个用于管理系统服务的 Bash 脚本。它能够检查、启动、停止和重启服务，并提供多语言支持。
 
+[English](https://github.com/yukaichao/tool-services-manager) | 中文
+
 ## 功能
 
 - **服务状态检查**：检测所有服务的运行状态，并提供详细的日志信息。
@@ -130,4 +132,4 @@ tool-services -y
 
 ## 许可证
 
-此项目基于 MIT 许可证开源。详细信息请参阅 [LICENSE](LICENSE) 文件。
+此项目基于 GPL 许可证开源。详细信息请参阅 [LICENSE](LICENSE) 文件。

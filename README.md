@@ -2,6 +2,8 @@
 
 Tool Services Manager is a Bash script designed to manage system services. It can check, start, stop, and restart services, and provides multi-language support.
 
+English | [中文](https://github.com/yukaichao/tool-services-manager/blob/main/README_zh.md)
+
 ## Features
 
 - **Service Status Check**: Detects the running status of all services and provides detailed log information.
@@ -130,4 +132,4 @@ If you have any suggestions or find any bugs, please submit an issue or pull req
 
 ## License
 
-This project is open-sourced under the MIT license. For more details, please refer to the [LICENSE](LICENSE) file.
+This project is open-sourced under the GPL license. For more details, please refer to the [LICENSE](LICENSE) file.
