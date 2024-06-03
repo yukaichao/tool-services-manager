@@ -17,7 +17,7 @@ Tool Services Manager is a Bash script designed to manage system services. It ca
 1. Clone the repository:
 
     ```sh
-    git clone https://github.com/yourusername/tool-services-manager.git
+    git clone https://github.com/yukaichao/tool-services-manager.git
     cd tool-services-manager
     ```
 
